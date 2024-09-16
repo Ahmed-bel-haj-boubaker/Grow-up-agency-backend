@@ -178,13 +178,13 @@ async function createInvoice(invoice, path) {
     for (const item of invoice.items) {
       const itemTotal = item.quantity * item.price;
       totalAmount += itemTotal;
-    
+
       try {
         // Await the result of the asynchronous call
         // eslint-disable-next-line no-await-in-loop
         const prod = await product.findById(item.product_id);
         console.log(prod);
-    
+
         doc
           .fillColor(secondaryColor)
           .fontSize(tableRowFontSize)
@@ -203,7 +203,9 @@ async function createInvoice(invoice, path) {
           });
         position += 20;
       } catch (error) {
-        console.error(`Error processing item with product ID ${item.product_id}`);
+        console.error(
+          `Error processing item with product ID ${item.product_id}`
+        );
         doc
           .fillColor("#FF0000")
           .text("Error retrieving product details", 55, position, {
@@ -224,7 +226,6 @@ async function createInvoice(invoice, path) {
         position += 20;
       }
     }
-    
 
     // Total Amount Row
     doc
@@ -253,30 +254,50 @@ async function createInvoice(invoice, path) {
 
 exports.downloadInvoice = expressAsyncHandler(async (req, res) => {
   const { invoiceId } = req.params;
+
+  // Fetching the invoice and populating related fields
   const invoice = await Invoice.findById(invoiceId).populate("quote");
-  console.log(invoice);
+
   if (!invoice) {
+    // No invoice? 😱 Time to tell the user.
     return res.status(404).json({ message: "Invoice not found" });
   }
 
-  const invoicePath = path.join(
+  // Defining the path where the invoice PDF should be saved
+  const invoicePath = path.resolve(
     __dirname,
     `../uploads/invoices/invoice_${invoiceId}.pdf`
   );
 
-  await createInvoice(
-    {
-      _id: invoice._id,
-      customerName: invoice.quote.customerName,
-      customerEmail: invoice.quote.customerEmail,
-      items: invoice.quote.quoteItems,
-    },
-    invoicePath
-  );
+  try {
+    // Create the invoice and save it to the specified path
+    await createInvoice(
+      {
+        _id: invoice._id,
+        customerName: invoice.quote.customerName,
+        customerEmail: invoice.quote.customerEmail,
+        items: invoice.quote.quoteItems,
+      },
+      invoicePath
+    );
 
-  res.download(invoicePath, `invoice_${invoiceId}.pdf`, (err) => {
-    if (err) {
-      res.status(500).json({ message: "Error downloading invoice" });
+    // Checking if the file exists before downloading
+    if (fs.existsSync(invoicePath)) {
+      // Ready for download! 🎉
+      res.download(invoicePath, `invoice_${invoiceId}.pdf`, (err) => {
+        if (err) {
+          console.error("Error during download:", err);
+          return res.status(500).json({ message: "Error downloading invoice" });
+        }
+      });
+    } else {
+      // Oops, something went wrong in file creation! 😬
+      res
+        .status(500)
+        .json({ message: "Invoice file not found after creation" });
     }
-  });
+  } catch (error) {
+    console.error("Error generating invoice:", error);
+    res.status(500).json({ message: "Error creating invoice" });
+  }
 });
